@@ -5,12 +5,12 @@ from app.database import get_db
 from app.models import User, University, Academic, SavedUniversity
 from app.schemas import UniversityResponse
 from app.auth import get_current_user
-from app.services.probability import calculate_probability
+from app.services.probability import calculate_probability_async
 
 router = APIRouter(prefix="/universities", tags=["Universities"])
 
 
-def build_response(uni: University, academic, saved_ids: set) -> UniversityResponse:
+async def build_response(uni: University, academic, saved_ids: set) -> UniversityResponse:
     return UniversityResponse(
         id=uni.id,
         name=uni.name,
@@ -20,7 +20,7 @@ def build_response(uni: University, academic, saved_ids: set) -> UniversityRespo
         min_sat=uni.min_sat,
         min_ielts=uni.min_ielts,
         min_toefl=uni.min_toefl,
-        probability=calculate_probability(uni, academic),
+        probability=await calculate_probability_async(uni, academic),
         label=uni.label,
         color=uni.color,
         full_description=uni.full_description,
@@ -39,7 +39,7 @@ def get_countries(user: User = Depends(get_current_user), db: Session = Depends(
 
 
 @router.get("/", response_model=List[UniversityResponse])
-def list_universities(
+async def list_universities(
     country: Optional[str] = Query(None),
     label: Optional[str] = Query(None),
     sort_by: str = Query("ranking", pattern="^(ranking|min_gpa|min_sat|min_ielts|probability)$"),
@@ -65,7 +65,11 @@ def list_universities(
     saved = db.query(SavedUniversity).filter(SavedUniversity.user_id == user.id).all()
     saved_ids = {s.university_id for s in saved}
 
-    result = [build_response(u, academic, saved_ids) for u in universities]
+    import asyncio
+    result = await asyncio.gather(
+        *[build_response(u, academic, saved_ids) for u in universities]
+    )
+    result = list(result)
 
     # Сортировка
     reverse = sort_order == "desc"
@@ -84,7 +88,7 @@ def list_universities(
 
 
 @router.get("/saved", response_model=List[UniversityResponse])
-def get_saved_universities(
+async def get_saved_universities(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -95,13 +99,17 @@ def get_saved_universities(
     academic = db.query(Academic).filter(Academic.user_id == user.id).first()
     saved_ids = set(uni_ids)
 
-    result = [build_response(u, academic, saved_ids) for u in universities]
+    import asyncio
+    result = await asyncio.gather(
+        *[build_response(u, academic, saved_ids) for u in universities]
+    )
+    result = list(result)
     result.sort(key=lambda x: x.probability or 0, reverse=True)
     return result
 
 
 @router.get("/{university_id}", response_model=UniversityResponse)
-def get_university(
+async def get_university(
     university_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -112,7 +120,7 @@ def get_university(
 
     academic = db.query(Academic).filter(Academic.user_id == user.id).first()
     saved = db.query(SavedUniversity).filter_by(user_id=user.id, university_id=university_id).first()
-    return build_response(uni, academic, {university_id} if saved else set())
+    return await build_response(uni, academic, {university_id} if saved else set())
 
 
 @router.post("/{university_id}/save", status_code=201)
