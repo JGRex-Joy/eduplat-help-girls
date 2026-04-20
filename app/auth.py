@@ -15,7 +15,7 @@ SECRET_KEY = os.getenv("SECRET_KEY", "eduplat-dev-secret-key")
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_DAYS = 30
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 security = HTTPBearer()
 
 
